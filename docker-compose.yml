@@ -1,0 +1,87 @@
+x-logging:
+  &default-logging
+  logging:
+    driver: json-file
+    options:
+      max-size: 100M
+
+services:
+  server:
+    image: judge0/judge0:1.13.1
+    volumes:
+      - ./judge0.conf:/judge0.conf:ro
+      - ./log:/api/log:rw
+      - ./config/puma.rb:/api/config/puma.rb:ro
+    ports:
+      - "3000:3000"
+    environment:
+      - RAILS_ENV=production
+      - DATABASE_URL=postgresql://judge0:4707@db:5432/judge0
+      - REDIS_URL=redis://:4707@redis:6379
+      - PORT=3000
+      - WEB_CONCURRENCY=2
+      - RAILS_MAX_THREADS=5
+      - PUMA_MIN_THREADS=0
+      - PUMA_MAX_THREADS=5
+      - SECRET_KEY_BASE=6d33524ec89b6e2445bde1cd798367844f084d81e6effeded74088938b321a637391f9f2bb1a90bfae0025e1ec1caf42016d7d0eecb5aa2eaf6c50d16a2516cc
+    command: ["./docker-entrypoint.sh", "rails", "server", "-b", "0.0.0.0", "-p", "3000"]
+    user: root
+    privileged: true
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    <<: *default-logging
+    restart: always
+
+  worker:
+    image: judge0/judge0:1.13.1
+    volumes:
+      - ./judge0.conf:/judge0.conf:ro
+    ports: []
+    environment:
+      - RAILS_ENV=production
+      - DATABASE_URL=postgresql://judge0:4707@db:5432/judge0
+      - REDIS_URL=redis://:4707@redis:6379
+      - SECRET_KEY_BASE=6d33524ec89b6e2445bde1cd798367844f084d81e6effeded74088938b321a637391f9f2bb1a90bfae0025e1ec1caf42016d7d0eecb5aa2eaf6c50d16a2516cc
+    command: ["/bin/sh", "-c", "cd /api && bundle install && /tmp/docker-entrypoint.sh bundle exec rake resque:work QUEUE=*"]
+    entrypoint: ["/bin/sh", "-c", "rm -f /var/run/crond.pid && cp ./docker-entrypoint.sh /tmp/docker-entrypoint.sh && chmod +x /tmp/docker-entrypoint.sh && sed -i 's/sudo//g' /tmp/docker-entrypoint.sh && echo 'root ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/root && cd /api && bundle install && /tmp/docker-entrypoint.sh bundle exec rake resque:work QUEUE=*"]
+    user: root
+    privileged: true
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    <<: *default-logging
+    restart: always
+
+  db:
+    image: postgres:16.2
+    environment:
+      - POSTGRES_PASSWORD=4707
+    volumes:
+      - data:/var/lib/postgresql/data/
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U judge0"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    <<: *default-logging
+    restart: always
+
+  redis:
+    image: redis:7.2.4
+    command:
+      - bash
+      - -c
+      - 'docker-entrypoint.sh --appendonly no --requirepass "4707"'
+    environment:
+      - REDIS_PASSWORD=4707
+    <<: *default-logging
+    restart: always
+
+volumes:
+  data:
+  log:
