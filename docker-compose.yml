@@ -60,7 +60,9 @@ services:
   db:
     image: postgres:16.2
     environment:
+      - POSTGRES_USER=judge0
       - POSTGRES_PASSWORD=4707
+      - POSTGRES_DB=judge0
     volumes:
       - data:/var/lib/postgresql/data/
     healthcheck:
